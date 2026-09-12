@@ -206,8 +206,8 @@ such as `disp('hi')`.
 ## Development
 
 ```sh
-git clone https://github.com/alotop/dsh-matlab-bridge.git
-cd dsh-matlab-bridge
+git clone https://github.com/alotop/dsh-matlab.git
+cd dsh-matlab
 npm run setup      # lay out the engine runtime from your local MATLAB
 npm run selftest   # end-to-end checks against a real MATLAB (starts one)
 npm run check      # syntax-check the plugin and scripts
@@ -235,7 +235,7 @@ repository. One-time setup on npmjs.com:
 
 1. The package must exist — do a first manual `npm publish` from a checkout.
 2. Package → Settings → **Trusted Publisher** → GitHub Actions, with
-   repository `alotop/dsh-matlab-bridge` and workflow `release.yml`.
+   repository `alotop/dsh-matlab` and workflow `release.yml`.
 
 After that, `id-token: write` in the workflow is the only credential needed, and
 every published version carries a signed provenance attestation.

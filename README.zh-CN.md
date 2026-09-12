@@ -156,8 +156,8 @@ MATLAB Engine 会把 MATLAB 命令窗口输出转发到驱动的 stdout，裸 JS
 ## 开发
 
 ```sh
-git clone https://github.com/alotop/dsh-matlab-bridge.git
-cd dsh-matlab-bridge
+git clone https://github.com/alotop/dsh-matlab.git
+cd dsh-matlab
 npm run setup      # 从本地 MATLAB 铺开引擎运行库
 npm run selftest   # 对真实 MATLAB 的端到端检查（会启动一个）
 npm run check      # 语法检查插件与脚本
