@@ -14,6 +14,19 @@
  * fail. A script file has an unambiguous module type and needs no shell
  * quoting either.
  *
+ * WHY THE OUTPUT SHAPE IS NORMALIZED
+ * `npm pack --json` changed shape without a major-version signal in the CLI:
+ *
+ *   npm <= 11   [ { name, entryCount, files: [{ path, size, mode }] } ]
+ *   npm >= 12   { "<name>": { name, entryCount, files: [...] } }
+ *
+ * npm 12 passes `key: tar.name` to its logger, which wraps the record in an
+ * object keyed by package name (lib/utils/tar.js). A check that only handled
+ * the array form passed locally and failed on CI, which installs npm@latest.
+ * findPackRecord() accepts either, and the failure path prints the keys it did
+ * see so the next shape change is diagnosable from one CI log rather than a
+ * source-reading session.
+ *
  *   npm pack --dry-run --json > pack.json
  *   node scripts/inspect-tarball.mjs
  */
@@ -36,6 +49,17 @@ const REQUIRED_FILES = [
   'scripts/setup-engine.mjs',
 ]
 
+/** Find the package record inside either the array or the keyed-object shape. */
+function findPackRecord(pack) {
+  const hasFiles = (value) => value !== null && typeof value === 'object' && Array.isArray(value.files)
+  if (Array.isArray(pack)) return pack.find(hasFiles) ?? pack[0]
+  if (pack !== null && typeof pack === 'object') {
+    if (hasFiles(pack)) return pack
+    return Object.values(pack).find(hasFiles)
+  }
+  return undefined
+}
+
 let pack
 try {
   pack = JSON.parse(readFileSync('pack.json', 'utf8'))
@@ -46,20 +70,22 @@ try {
   process.exit(1)
 }
 
-// `npm pack --json` emits an array; tolerate a bare object for safety.
-const entry = Array.isArray(pack) ? pack[0] : pack
-if (entry === undefined || !Array.isArray(entry.files)) {
-  console.error('error: pack.json did not describe a packaged file list')
+const entry = findPackRecord(pack)
+if (entry === undefined) {
+  console.error('error: no package record with a file list in pack.json')
+  console.error('       top-level: ' + (Array.isArray(pack) ? 'array' : typeof pack))
+  const keys = Array.isArray(pack) ? Object.keys(pack[0] ?? {}) : Object.keys(pack ?? {})
+  console.error('       keys seen: ' + JSON.stringify(keys))
   process.exit(1)
 }
 
-const paths = entry.files.map((file) => file.path)
+const paths = entry.files.map((file) => (typeof file === 'string' ? file : file.path))
 const failures = []
 
 // The engine runtime is MathWorks code laid out from the user's own MATLAB
 // installation. Redistributing it through the registry would be a licence
 // problem, so this is a hard stop rather than a warning.
-const leaked = paths.filter((path) => path.includes('pylibs'))
+const leaked = paths.filter((path) => typeof path === 'string' && path.includes('pylibs'))
 if (leaked.length > 0) {
   failures.push('engine runtime must not be published: ' + leaked.join(', '))
 }
@@ -74,5 +100,6 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-const sizeKb = Math.round(entry.size / 1024)
-console.log('tarball ok: ' + entry.entryCount + ' files, ' + sizeKb + ' kB, no engine runtime')
+const fileCount = entry.entryCount ?? paths.length
+const sizeKb = Math.round((entry.size ?? 0) / 1024)
+console.log('tarball ok: ' + fileCount + ' files, ' + sizeKb + ' kB, no engine runtime')
