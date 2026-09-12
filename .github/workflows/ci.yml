@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Syntax-check the plugin and scripts
+        run: npm run check
+
+      - name: Compile-check the Python driver and helpers
+        run: python -m compileall -q python
+
+      # Catches two regressions that are invisible locally: a package.json
+      # "files" entry that drops something the runtime needs, and the engine
+      # runtime leaking into the published tarball. The full behaviour needs a
+      # MATLAB install, so it lives in `npm run selftest` instead of CI.
+      - name: Inspect the published tarball
+        run: |
+          set -eu
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const [p] = require('./pack.json');
+            const paths = p.files.map((f) => f.path);
+            const bad = paths.filter((x) => x.includes('pylibs'));
+            if (bad.length > 0) {
+              console.error('engine runtime must not be published:', bad);
+              process.exit(1);
+            }
+            const required = ['src/plugin.mjs', 'python/ml_driver.py', 'scripts/setup-engine.mjs'];
+            const missing = required.filter((x) => !paths.includes(x));
+            if (missing.length > 0) {
+              console.error('package is missing required files:', missing);
+              process.exit(1);
+            }
+            console.log('tarball ok: ' + p.entryCount + ' files, ' + Math.round(p.size / 1024) + ' kB');
+          "

@@ -1,0 +1,14 @@
+# matlab-bridge bundle layer: register the tool plugin row.
+#
+# `dsh plugin --profile <profile> add @alotop/dsh-matlab-bridge` installs this
+# package and composes this row into the profile. Declaring it here instead of
+# asking the user to paste the row into a preset is what makes the package
+# self-contained and lets `dsh plugin add` activate it on its own -- without a
+# dsh.bundle in package.json the install is recorded as a plain dependency and
+# nothing is registered.
+#
+# The row publishes no service, only registers tools, so it sits loose and needs
+# no `isolate` realm.
+- insert:
+    - id: matlab-bridge
+      name: '@alotop/dsh-matlab-bridge'

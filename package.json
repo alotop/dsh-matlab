@@ -1,0 +1,58 @@
+{
+  "name": "@alotop/dsh-matlab-bridge",
+  "version": "0.1.1",
+  "description": "Run and interactively debug MATLAB code from a DSH session, through a persistent MATLAB Engine session.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "matlab",
+    "debugger",
+    "matlab-engine"
+  ],
+  "license": "MIT",
+  "author": "alotop",
+  "type": "module",
+  "exports": {
+    ".": "./src/plugin.mjs"
+  },
+  "bin": {
+    "dsh-matlab-bridge-setup": "scripts/setup-engine.mjs"
+  },
+  "files": [
+    "src",
+    "scripts",
+    "cordis.patch.yml",
+    "python/ml_driver.py",
+    "python/mfiles",
+    "python/selftest.py",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup-engine.mjs",
+    "selftest": "node scripts/run-selftest.mjs",
+    "check": "node --check src/plugin.mjs && node --check scripts/setup-engine.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alotop/dsh-matlab-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alotop/dsh-matlab-bridge/issues"
+  },
+  "homepage": "https://github.com/alotop/dsh-matlab-bridge#readme",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

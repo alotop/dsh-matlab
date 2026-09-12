@@ -1,0 +1,76 @@
+name: Release
+
+# Only a tag push publishes. Branch pushes are covered by ci.yml, so a merge
+# can never publish by accident.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Least privilege. `contents: write` lets the run create the GitHub Release;
+# `id-token: write` is what authorizes npm to accept the publish through OIDC
+# Trusted Publishing -- no long-lived npm token is stored in this repository.
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Deliberately no `registry-url`: that would write an .npmrc pointing at
+      # NODE_AUTH_TOKEN, and an unset token would compete with OIDC. The public
+      # registry is npm's default anyway.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Trusted Publishing requires npm >= 11.5.1.
+      - name: Use a recent npm
+        run: npm install -g npm@latest
+
+      # A tag that disagrees with package.json would publish the wrong version
+      # under the right name, which is unrecoverable. Fail before publishing.
+      - name: Verify the tag matches package.json
+        run: |
+          set -eu
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "tag=${GITHUB_REF_NAME} package=${pkg}"
+          if [ "${pkg}" != "${tag}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${pkg}"
+            exit 1
+          fi
+
+      - name: Syntax check
+        run: npm run check
+
+      # The engine runtime is MathWorks code laid out from a local MATLAB, so it
+      # must never reach the registry. ci.yml asserts the same thing.
+      - name: Refuse to publish the engine runtime
+        run: |
+          set -eu
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const [p] = require('./pack.json');
+            const bad = p.files.filter((f) => f.path.includes('pylibs'));
+            if (bad.length > 0) {
+              console.error('engine runtime must not be published:', bad.map((f) => f.path));
+              process.exit(1);
+            }
+            console.log('publishing ' + p.entryCount + ' files');
+          "
+
+      # Provenance and OIDC both come from the id-token permission above.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: ${{ github.ref_name }}

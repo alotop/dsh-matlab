@@ -1,0 +1,9 @@
+# Keep line endings identical in the repository and in the working copy.
+# Every file here is text and LF-safe, and npm publishes from the working copy,
+# so a checkout that silently rewrote line endings would publish different
+# bytes than the ones reviewed.
+* text=auto eol=lf
+
+# Windows command shims must stay CRLF if any are ever added.
+*.cmd text eol=crlf
+*.bat text eol=crlf

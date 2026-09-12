@@ -1,0 +1,23 @@
+# MATLAB Engine for Python runtime, laid out at install time by
+# scripts/setup-engine.mjs from a local MATLAB installation. Regenerable, and
+# MathWorks code must not be redistributed -- never commit or publish it.
+python/pylibs/
+
+# Local, machine-specific notes (MATLAB root, interpreter, DSH preset path,
+# signing setup). Deliberately untracked.
+LOCAL.md
+
+node_modules/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+Thumbs.db
+.matlab-figures/
+
+# The default npm cache lives outside a DSH session's writable root, so
+# `npm pack` there fails with EPERM. Point npm at these instead.
+.npm-cache/
+pack.json
+
+*.tgz
