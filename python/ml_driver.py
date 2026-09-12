@@ -70,6 +70,14 @@ _STDOUT = sys.stdout.buffer
 
 PROTOCOL_PREFIX = "@@DSH:"
 
+# Every action op_debug implements. Kept here so an unknown action can be
+# rejected before the engine is touched -- see op_debug.
+DEBUG_ACTIONS = (
+    "break", "breakError", "clearBreaks", "run", "status", "stack",
+    "vars", "get", "eval", "step", "stepIn", "stepOut", "continue",
+    "quit", "finish",
+)
+
 _engine = None
 _future = None
 _last_run_error = None
@@ -172,6 +180,11 @@ def op_eval(req):
 def op_debug(req):
     global _future, _last_run_error
     action = req.get("action", "")
+    # Validate before touching the engine: a typo must not pay a ~20s MATLAB
+    # launch, which is otherwise a very expensive way to learn you misspelled
+    # an action.
+    if action not in DEBUG_ACTIONS:
+        return {"ok": False, "err": "unknown debug action: %s" % action}
     eng = engine()
 
     if action == "break":
@@ -277,18 +290,23 @@ def op_debug(req):
 
 
 def _format_value(value):
-    """Render a MATLAB value for the model without dumping it as Python repr."""
+    """Render a MATLAB value as text for the model.
+
+    Formatting happens in Python because that is where the value already lives.
+    Calling back into MATLAB with `evalc('disp(value)')` would name a MATLAB
+    variable `value` that does not exist, so it merely leaked a spurious
+    "unrecognized function or variable 'value'" onto stderr beside a value that
+    was on its way out anyway. Engine array wrappers stringify to a readable
+    nested list, which is a fine rendering for a debugger readout.
+    """
     if value is None:
         return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, float):
-        return repr(value)
-    if isinstance(value, (int, bool, str)):
-        return str(value)
-    try:
-        text = engine().eval("evalc('disp(value)')", nargout=1)
-        return text or str(value)
-    except Exception:  # noqa: BLE001
-        return str(value)
+        # MATLAB prints an integral double without a trailing ".0".
+        return str(int(value)) if value.is_integer() else repr(value)
+    return str(value)
 
 
 def _load_json(payload, label):

@@ -157,9 +157,8 @@ def run_figure_checks(driver, out_dir):
 
     resp = driver.call("figure", action="list")
     check("no figures remain after close", resp.get("ok") is True and resp.get("figures") == [], repr(resp))
-
-    resp = driver.call("figure", action="nonsense")
-    check("an invalid figure action is rejected", resp.get("ok") is False, repr(resp))
+    # Rejecting an unknown action is asserted in main(), before MATLAB starts,
+    # so that the same check also proves a typo does not launch the engine.
 
 
 def run_debug_checks(driver, fixture_dir):
@@ -179,7 +178,7 @@ def run_debug_checks(driver, fixture_dir):
     check("paused frame exposes locals", "a" in out and "b" in out, repr(out))
 
     resp = driver.call("debug", action="get", name="a")
-    check("reads a local by name", resp.get("ok") is True and resp.get("out", "").startswith("1"), repr(resp))
+    check("reads a local by name", resp.get("ok") is True and resp.get("out", "").strip() == "1", repr(resp))
 
     resp = driver.call("debug", action="get", name="c")
     check("unassigned local is reported as an error", resp.get("ok") is False, repr(resp))
@@ -188,10 +187,20 @@ def run_debug_checks(driver, fixture_dir):
     check("step keeps the session paused", resp.get("state") == "paused", repr(resp.get("state")))
 
     resp = driver.call("debug", action="get", name="c")
-    check("stepping makes the next local visible", resp.get("ok") is True and resp.get("out", "").startswith("3"), repr(resp))
+    check("stepping makes the next local visible", resp.get("ok") is True and resp.get("out", "").strip() == "3", repr(resp))
 
     resp = driver.call("debug", action="eval", code="a + b")
-    check("evaluates an expression in the paused frame", resp.get("ok") is True and resp.get("out", "").startswith("3"), repr(resp))
+    check("evaluates an expression in the paused frame", resp.get("ok") is True and resp.get("out", "").strip() == "3", repr(resp))
+
+    # Regression: _format_value once called back into MATLAB with an expression
+    # naming `value`, which is a PYTHON variable -- MATLAB has no such name, so
+    # every non-scalar readout leaked an error onto stderr beside its value.
+    before = len(driver.chatter)
+    resp = driver.call("debug", action="eval", code="[a b]")
+    leaked = driver.chatter[before:]
+    check("evaluating a vector in the paused frame succeeds", resp.get("ok") is True, repr(resp))
+    check("a frame value readout leaks no MATLAB error to stderr",
+          not any("value" in line for line in leaked), repr(leaked))
 
     resp = driver.call("debug", action="stack")
     check("stack is available while paused", resp.get("ok") is True and bool(resp.get("out")), repr(resp.get("out")))
@@ -224,6 +233,16 @@ def main():
             resp = driver.call("ping")
             check("driver answers ping", resp.get("ok") is True, repr(resp))
             check("engine is lazy before first use", resp.get("engineRunning") is False, repr(resp))
+
+            # Rejecting an unknown action must not pay a MATLAB launch. These
+            # run before any check that starts the engine, so "still lazy" is a
+            # meaningful assertion rather than a restatement of "already up".
+            resp = driver.call("debug", action="nonsense")
+            check("an invalid debug action is rejected", resp.get("ok") is False, repr(resp))
+            resp = driver.call("figure", action="nonsense")
+            check("an invalid figure action is rejected", resp.get("ok") is False, repr(resp))
+            resp = driver.call("ping")
+            check("a rejected action does not launch MATLAB", resp.get("engineRunning") is False, repr(resp))
 
             run_eval_checks(driver)
             run_figure_checks(driver, tmp)
