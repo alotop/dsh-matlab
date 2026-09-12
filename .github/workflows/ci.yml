@@ -37,19 +37,4 @@ jobs:
         run: |
           set -eu
           npm pack --dry-run --json > pack.json
-          node -e "
-            const [p] = require('./pack.json');
-            const paths = p.files.map((f) => f.path);
-            const bad = paths.filter((x) => x.includes('pylibs'));
-            if (bad.length > 0) {
-              console.error('engine runtime must not be published:', bad);
-              process.exit(1);
-            }
-            const required = ['src/plugin.mjs', 'python/ml_driver.py', 'scripts/setup-engine.mjs'];
-            const missing = required.filter((x) => !paths.includes(x));
-            if (missing.length > 0) {
-              console.error('package is missing required files:', missing);
-              process.exit(1);
-            }
-            console.log('tarball ok: ' + p.entryCount + ' files, ' + Math.round(p.size / 1024) + ' kB');
-          "
+          node scripts/inspect-tarball.mjs

@@ -44,7 +44,8 @@
   "scripts": {
     "setup": "node scripts/setup-engine.mjs",
     "selftest": "node scripts/run-selftest.mjs",
-    "check": "node --check src/plugin.mjs && node --check scripts/setup-engine.mjs"
+    "check": "node --check src/plugin.mjs && node --check scripts/setup-engine.mjs && node --check scripts/run-selftest.mjs && node --check scripts/inspect-tarball.mjs",
+    "pack:check": "npm pack --dry-run --json > pack.json && node scripts/inspect-tarball.mjs"
   },
   "bugs": {
     "url": "https://github.com/alotop/dsh-matlab/issues"

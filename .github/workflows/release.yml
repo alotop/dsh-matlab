@@ -50,20 +50,12 @@ jobs:
         run: npm run check
 
       # The engine runtime is MathWorks code laid out from a local MATLAB, so it
-      # must never reach the registry. ci.yml asserts the same thing.
+      # must never reach the registry. ci.yml runs the same script.
       - name: Refuse to publish the engine runtime
         run: |
           set -eu
           npm pack --dry-run --json > pack.json
-          node -e "
-            const [p] = require('./pack.json');
-            const bad = p.files.filter((f) => f.path.includes('pylibs'));
-            if (bad.length > 0) {
-              console.error('engine runtime must not be published:', bad.map((f) => f.path));
-              process.exit(1);
-            }
-            console.log('publishing ' + p.entryCount + ' files');
-          "
+          node scripts/inspect-tarball.mjs
 
       # Provenance and OIDC both come from the id-token permission above.
       - name: Publish to npm
