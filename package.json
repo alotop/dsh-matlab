@@ -1,6 +1,6 @@
 {
   "name": "@alotop/dsh-matlab-bridge",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Run and interactively debug MATLAB code from a DSH session, through a persistent MATLAB Engine session.",
   "repository": {
     "type": "git",
