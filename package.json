@@ -4,10 +4,11 @@
   "description": "Run and interactively debug MATLAB code from a DSH session, through a persistent MATLAB Engine session.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alotop/dsh-matlab.git"
+    "url": "git+https://github.com/alotop/dsh-matlab-bridge.git"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "keywords": [
     "dsh",
@@ -45,10 +46,6 @@
     "selftest": "node scripts/run-selftest.mjs",
     "check": "node --check src/plugin.mjs && node --check scripts/setup-engine.mjs"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/alotop/dsh-matlab-bridge.git"
-  },
   "bugs": {
     "url": "https://github.com/alotop/dsh-matlab-bridge/issues"
   },
@@ -57,9 +54,5 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
   }
 }
