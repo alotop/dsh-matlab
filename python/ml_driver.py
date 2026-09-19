@@ -386,6 +386,23 @@ def op_figure(req):
     return {"ok": False, "err": "unknown figure action: %s" % action}
 
 
+def shutdown_engine():
+    """Quit the MATLAB engine if one is running, and forget it.
+
+    Quitting is the only thing that stops the MATLAB process: it was started by
+    this driver, and letting the driver die without this leaves MATLAB running
+    with no owner.
+    """
+    global _engine
+    if _engine is None:
+        return
+    try:
+        _engine.quit()
+    except Exception:  # noqa: BLE001
+        pass
+    _engine = None
+
+
 def dispatch(req):
     global _engine
     op = req.get("op", "")
@@ -402,12 +419,7 @@ def dispatch(req):
     if op == "figure":
         return op_figure(req)
     if op == "shutdown":
-        if _engine is not None:
-            try:
-                _engine.quit()
-            except Exception:  # noqa: BLE001
-                pass
-            _engine = None
+        shutdown_engine()
         emit({"id": req.get("id"), "ok": True, "state": "shutdown"})
         raise SystemExit(0)
     return {"ok": False, "err": "unknown op: %s" % op}
@@ -431,6 +443,16 @@ def main():
             response = {"ok": False, "err": "%s: %s" % (type(exc).__name__, exc)}
         response["id"] = req.get("id")
         emit(response)
+
+    # stdin reached EOF: the caller is gone. This is the second half of the
+    # clean-exit story -- a parent that exits without disposing us closes this
+    # pipe, so quitting MATLAB here is what keeps a closed DSH from leaving an
+    # orphaned MATLAB behind. The notice goes to stderr because that is the
+    # diagnostic channel, and it is what a self-test can observe: the process
+    # exits either way, so only this distinguishes "quit MATLAB first" from
+    # "died and left MATLAB running".
+    print("dsh-matlab-bridge: stdin closed, quitting MATLAB", file=sys.stderr, flush=True)
+    shutdown_engine()
 
 
 if __name__ == "__main__":

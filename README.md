@@ -119,10 +119,11 @@ All optional; the defaults need no configuration on a normal machine.
 - id: matlab-bridge
   name: '@alotop/dsh-matlab-bridge'
   config:
-    pythonPath: python3.12        # default: first of python3, python on PATH
-    workDir: /path/to/project     # default: the calling session's cwd
-    figureDir: /tmp/figures       # default: <workDir>/.matlab-figures
-    timeoutMs: 180000             # default: 180000
+    pythonPath: python3.12            # default: first of python3, python on PATH
+    workDir: /path/to/project         # default: the calling session's cwd
+    figureDir: /tmp/figures           # default: <workDir>/.matlab-figures
+    timeoutMs: 180000                 # default: 180000
+    shutdownEngineOnExit: true        # default: true
 ```
 
 ## Tools
@@ -172,8 +173,47 @@ nothing.
 ### `matlab_session`
 
 `start`, `status`, `stop`. MATLAB takes tens of seconds to start, so the session
-stays warm and is reused. `status` reports the package path, whether the driver
-is running, and whether the engine runtime has been laid out.
+stays warm and is reused.
+
+`status` reports the package path, **the Python interpreter the driver runs on**,
+whether the driver is running, whether the engine runtime has been laid out, and
+whether MATLAB is quit on exit. The interpreter is worth showing on a machine
+that carries several: the one that resolves first is not necessarily the one
+setup verified, and `pythonPath` is the fix when they disagree.
+
+## Commands
+
+Four human entry points, for the operations that do not belong on the model's
+tool surface:
+
+| Command | Does |
+|---|---|
+| `/matlab-status` | The same report as `matlab_session status`. |
+| `/matlab-start` | Start the persistent engine session. |
+| `/matlab-stop` | Quit MATLAB and stop the driver. |
+| `/matlab-setup` | Lay out the engine runtime from the local MATLAB install. |
+
+`/matlab-setup` runs the layout script through the same unconfined subprocess
+seam as everything else, so it can write into the installed package directory —
+which lies outside every session workspace — without you opening a separate
+terminal.
+
+### Quitting MATLAB when DSH exits
+
+`shutdownEngineOnExit` (default `true`) decides whether shutting DSH down also
+quits MATLAB. It is on by default because the driver is a child process: killing
+it outright leaves the MATLAB engine it started with no owner.
+
+Two mechanisms cover both ways DSH can go away:
+
+- a normal plugin disposal writes the shutdown request and closes the driver's
+  stdin, so the driver quits MATLAB and exits on its own;
+- if DSH exits without disposing the plugin at all, that closed pipe reaches the
+  driver as EOF, and the driver quits MATLAB and exits anyway.
+
+Set it to `false` to leave MATLAB running when DSH exits. Without a shared engine
+session nothing can reattach to it, so it becomes an orphan process — useful for
+inspecting a live session, not a way to keep one.
 
 ## How it works
 

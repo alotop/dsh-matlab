@@ -248,6 +248,8 @@ def main():
             run_figure_checks(driver, tmp)
             if not args.no_debug:
                 run_debug_checks(driver, tmp)
+            # Last, because it ends the driver's life.
+            run_exit_checks(driver)
         finally:
             driver.close()
 
@@ -257,6 +259,34 @@ def main():
         return 1
     print("SELFTEST PASSED", flush=True)
     return 0
+
+
+def run_exit_checks(driver):
+    """
+    Closing the driver's stdin is what a DSH shutdown looks like from inside the
+    driver, so it must quit MATLAB and then exit on its own.
+
+    The process exits either way -- EOF ends the read loop whether or not the
+    cleanup runs -- so the assertion is the cleanup notice on stderr, not the
+    exit itself. Exiting without that notice is exactly how a MATLAB process
+    gets orphaned.
+    """
+    driver.proc.stdin.close()
+    deadline = time.time() + 90
+    saw_cleanup = False
+    while time.time() < deadline:
+        line = driver.proc.stdout.readline()
+        if line == "":
+            break
+        if "stdin closed, quitting MATLAB" in line:
+            saw_cleanup = True
+    try:
+        code = driver.proc.wait(timeout=60)
+    except Exception as exc:  # noqa: BLE001
+        check("driver quits MATLAB when its stdin closes", False, "did not exit: %r" % (exc,))
+        return
+    check("driver quits MATLAB when its stdin closes", saw_cleanup,
+          "cleanup notice=%s exit=%s" % (saw_cleanup, code))
 
 
 if __name__ == "__main__":

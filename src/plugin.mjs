@@ -193,6 +193,123 @@ export function apply(ctx, config) {
     if (typeof cwd === 'string' && cwd.length > 0) sessionCwd = cwd
   }
 
+  /**
+   * Whether DSH shutting down also quits MATLAB. On by default: the driver is
+   * a child process, and killing it hard leaves the MATLAB engine it started
+   * with no owner.
+   */
+  const shutdownOnExit = config?.shutdownEngineOnExit !== false
+
+  function setupScriptPath() {
+    return join(PACKAGE_ROOT, 'scripts', 'setup-engine.mjs')
+  }
+
+  /**
+   * Report the interpreter the driver actually runs on. A machine can carry
+   * several (a system Python and a conda one, say), and the one that resolves
+   * first is not necessarily the one that was verified during setup, so seeing
+   * it is the difference between a five-second diagnosis and a long one.
+   */
+  async function pythonLine() {
+    try {
+      return 'python: ' + (await resolvePython())
+    } catch (error) {
+      return 'python: NOT FOUND - ' + String((error && error.message) || error)
+    }
+  }
+
+  /** Shared by the `matlab_session` tool and the /matlab-status command. */
+  async function statusReport() {
+    const runtimePresent = existsSync(join(PYLIBS_PATH, 'matlab'))
+    const lines = [
+      'package: ' + PACKAGE_ROOT,
+      await pythonLine(),
+      'driver: ' + (handle === null ? 'not running' : 'running'),
+      'engine runtime: ' + (runtimePresent ? 'present' : 'MISSING'),
+      'quit MATLAB on exit: ' + (shutdownOnExit ? 'yes' : 'no'),
+    ]
+    if (!runtimePresent) {
+      lines.push('', 'Lay it out with /matlab-setup, or: node ' + JSON.stringify(setupScriptPath()))
+    }
+    if (handle === null) {
+      lines.push('matlab: not started')
+      return lines.join('\n')
+    }
+    const resp = await rpc('ping', {}, 30000)
+    lines.push('matlab: ' + (resp.engineRunning ? 'running' : 'not started'))
+    return lines.join('\n')
+  }
+
+  /** Shared by the `matlab_session` tool and the /matlab-stop command. */
+  async function stopEngine() {
+    if (handle === null) return 'no MATLAB session is running'
+    try {
+      await rpc('shutdown', {}, 60000)
+    } catch {
+      // The driver exits as part of shutdown, so a dropped reply is expected.
+    }
+    try {
+      handle.terminate()
+    } catch {
+      // Already gone.
+    }
+    handle = null
+    pending.clear()
+    return 'MATLAB session stopped'
+  }
+
+  /** Shared by the `matlab_session` tool and the /matlab-start command. */
+  async function startEngine() {
+    const resp = await rpc('start', {}, timeoutMs)
+    if (resp.ok === false) return 'MATLAB failed to start: ' + resp.err
+    return 'MATLAB ' + (resp.version || '') + ' started'
+  }
+
+  /** Keep a command reply readable; setup output is long and mostly progress. */
+  function tailLines(text, max) {
+    const lines = text.split('\n').filter((line) => line.trim() !== '')
+    return lines.length <= max ? lines.join('\n') : lines.slice(-max).join('\n')
+  }
+
+  /**
+   * Run the engine-layout script. Spawning it through `ctx.subprocess` matters:
+   * the script writes into this package's own directory, which lies outside the
+   * session workspace, and only this unconfined seam can write there — so
+   * /matlab-setup works without the user opening a separate terminal.
+   * `process.execPath` is the Node already running DSH, so no PATH lookup.
+   */
+  async function runSetup() {
+    const script = setupScriptPath()
+    if (!existsSync(script)) throw new Error('setup script not found at ' + script)
+    const spawned = ctx.subprocess.spawn({
+      argv: [process.execPath, script],
+      cwd: PACKAGE_ROOT,
+      stdio: {
+        stdin: 'ignore',
+        stdout: { maxBytes: 64000 },
+        stderr: { maxBytes: 64000 },
+      },
+      graceMs: 10000,
+    })
+    const outcome = await spawned.done
+    const collected = spawned.collected ?? {}
+    const read = (reader) => {
+      try {
+        return reader === undefined ? '' : reader.readFrom(0).text
+      } catch {
+        return ''
+      }
+    }
+    const text = [read(collected.stdout), read(collected.stderr)]
+      .filter((part) => part.length > 0)
+      .join('\n')
+    const tail = tailLines(text, 20)
+    if (outcome.exitCode !== 0) {
+      return 'setup-engine failed (exit code ' + outcome.exitCode + ')\n' + (tail || '(no output)')
+    }
+    return tail || 'setup-engine finished with no output'
+  }
+
   function pushChatter(line) {
     if (line.trim() === '') return
     chatter.push(line)
@@ -451,61 +568,69 @@ export function apply(ctx, config) {
     async execute(args, exec) {
       rememberSession(exec)
       const action = String(args.action)
-      if (action === 'stop') {
-        if (handle === null) return { text: 'no MATLAB session is running' }
-        try {
-          await rpc('shutdown', {}, 60000)
-        } catch {
-          // The driver exits as part of shutdown, so a dropped reply is expected.
-        }
-        try {
-          handle.terminate()
-        } catch {
-          // Already gone.
-        }
-        handle = null
-        pending.clear()
-        return { text: 'MATLAB session stopped' }
-      }
-      if (action === 'status') {
-        const runtimePresent = existsSync(join(PYLIBS_PATH, 'matlab'))
-        const lines = [
-          'package: ' + PACKAGE_ROOT,
-          'driver: ' + (handle === null ? 'not running' : 'running'),
-          // Name the exact command rather than a bare bin name: this package is
-          // normally installed into a DSH profile, where its bin is not on
-          // PATH, so "run dsh-matlab-bridge-setup" is not actionable.
-          'engine runtime: ' + (runtimePresent
-            ? 'present'
-            : 'MISSING - run: node ' + JSON.stringify(join(PACKAGE_ROOT, 'scripts', 'setup-engine.mjs'))),
-        ]
-        if (handle === null) {
-          lines.push('matlab: not started')
-          return { text: lines.join('\n') }
-        }
-        const resp = await rpc('ping', {}, 30000)
-        lines.push('matlab: ' + (resp.engineRunning ? 'running' : 'not started'))
-        return { text: lines.join('\n') }
-      }
-      if (action === 'start') {
-        const resp = await rpc('start', {}, timeoutMs)
-        if (resp.ok === false) return { text: 'MATLAB failed to start: ' + resp.err }
-        return { text: 'MATLAB ' + (resp.version || '') + ' started' }
-      }
+      if (action === 'stop') return { text: await stopEngine() }
+      if (action === 'status') return { text: await statusReport() }
+      if (action === 'start') return { text: await startEngine() }
       return { text: 'unknown action: ' + action + ' (use start, status or stop)' }
     },
   })
 
+  /**
+   * Ask the driver to quit MATLAB, then close its stdin.
+   *
+   * The disposer cannot await, and killing the driver outright would orphan the
+   * MATLAB process it started, because a hard kill never runs Python's atexit.
+   * Writing the shutdown request and closing the pipe hands the clean exit to
+   * the driver instead. Returns false when there is no usable stdin, so the
+   * caller can fall back to terminate().
+   */
+  function requestGracefulStop(active) {
+    try {
+      active.stdin.write(JSON.stringify({ id: nextId, op: 'shutdown' }) + '\n')
+      nextId += 1
+      active.stdin.end()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Human entry points for the operations that do not belong on the model's
+   * tool surface. `commands` is read optionally rather than injected: a
+   * deployment without a command registry must still get the tools, which are
+   * this plugin's whole value.
+   */
+  const commands = ctx.get('commands')
+  if (commands !== undefined) {
+    const command = (name, description, run) => ctx.effect(() => commands.register({
+      name,
+      description,
+      handler: async () => {
+        try {
+          return { kind: 'success', text: await run() }
+        } catch (error) {
+          return { kind: 'error', text: String((error && error.message) || error) }
+        }
+      },
+    }))
+    command('matlab-status', 'Show MATLAB bridge status: package, interpreter, driver, engine runtime.', statusReport)
+    command('matlab-start', 'Start the persistent MATLAB engine session.', startEngine)
+    command('matlab-stop', 'Shut down the persistent MATLAB engine session and its driver.', stopEngine)
+    command('matlab-setup', 'Lay out the MATLAB Engine runtime from the local MATLAB installation.', runSetup)
+  }
+
   // The driver owns a MATLAB process; the mount must not leak it.
   ctx.effect(() => () => {
-    if (handle !== null) {
-      try {
-        handle.terminate()
-      } catch {
-        // Nothing left to release.
-      }
-      handle = null
-    }
+    const active = handle
+    handle = null
     failAll('matlab-bridge plugin was stopped')
+    if (active === null) return
+    if (shutdownOnExit && requestGracefulStop(active)) return
+    try {
+      active.terminate()
+    } catch {
+      // Nothing left to release.
+    }
   })
 }

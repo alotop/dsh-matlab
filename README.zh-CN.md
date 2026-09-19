@@ -94,10 +94,11 @@ npm install --no-save ./alotop-dsh-matlab-bridge-<版本>.tgz    # 或装进某�
 - id: matlab-bridge
   name: '@alotop/dsh-matlab-bridge'
   config:
-    pythonPath: python3.12        # 默认：PATH 上第一个 python3 / python
-    workDir: /path/to/project     # 默认：调用方会话的 cwd
-    figureDir: /tmp/figures       # 默认：<workDir>/.matlab-figures
-    timeoutMs: 180000             # 默认：180000
+    pythonPath: python3.12            # 默认：PATH 上第一个 python3 / python
+    workDir: /path/to/project         # 默认：调用方会话的 cwd
+    figureDir: /tmp/figures           # 默认：<workDir>/.matlab-figures
+    timeoutMs: 180000                 # 默认：180000
+    shutdownEngineOnExit: true        # 默认：true
 ```
 
 ## 工具
@@ -132,7 +133,33 @@ matlab_debug action=continue                    → state: completed
 
 ### `matlab_session`
 
-`start`、`status`、`stop`。MATLAB 启动要几十秒，所以会话保持热态并复用。`status` 会报告包路径、驱动是否在跑、以及引擎运行库是否已经铺开。
+`start`、`status`、`stop`。MATLAB 启动要几十秒，所以会话保持热态并复用。
+
+`status` 会报告包路径、**驱动实际使用的 Python 解释器**、驱动是否在跑、引擎运行库是否已铺开、以及退出 DSH 时是否关闭 MATLAB。解释器值得显示出来——在有多个 Python 的机器上，PATH 上先解析到的那个不一定是 setup 验证过的那个，两者不一致时 `pythonPath` 就是解药。
+
+## 命令
+
+四个人工入口，用于那些不该出现在模型工具面上的操作：
+
+| 命令 | 作用 |
+|---|---|
+| `/matlab-status` | 与 `matlab_session status` 同一份报告 |
+| `/matlab-start` | 启动常驻引擎会话 |
+| `/matlab-stop` | 关闭 MATLAB 并停止驱动 |
+| `/matlab-setup` | 从本地 MATLAB 铺开引擎运行库 |
+
+`/matlab-setup` 走的是与其它操作相同的非受限 subprocess 通道，因此它能写入**已安装的包目录**（位于任何会话工作区之外），不需要你另开终端。
+
+### DSH 退出时是否关闭 MATLAB
+
+`shutdownEngineOnExit`（默认 `true`）决定关闭 DSH 时是否一并关闭 MATLAB。默认开启，因为驱动是子进程：直接杀掉它会留下一个**无人认领**的 MATLAB 引擎。
+
+两条机制覆盖 DSH 两种退出方式：
+
+- 正常的插件卸载会写入关闭请求并关闭驱动的 stdin，驱动自己跑完 `engine.quit()` 后退出；
+- 如果 DSH 根本没卸载插件就退出，那条管道关闭会以 **EOF** 形式到达驱动，驱动同样退出 MATLAB 后再结束。
+
+设为 `false` 可让 DSH 退出时保留 MATLAB。但在没有 shared engine 会话的前提下，没有任何东西能重接上去，它只会变成一个孤儿进程——适合临时查看一个活会话，不是"保留会话"的办法。
 
 ## 工作原理
 
